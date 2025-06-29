@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
+
 const spamPatterns = [
-  { pattern: 'free', weight: 2 },
+ /* { pattern: 'free', weight: 2 },
   { pattern: 'win', weight: 1.5 },
   { pattern: 'lottery', weight: 3 },
   { pattern: 'click here', weight: 2.5 },
@@ -28,11 +29,30 @@ const spamPatterns = [
   { pattern: 'guaranteed', weight: 1.9 },
   { pattern: 'earn extra cash', weight: 2.4 },
   { pattern: '100% free', weight: 2.6 },
+  { pattern: 'ababcabab', weight: 2.6 },*/
+
+
+  { pattern: 'free', weight: 2 },
+  { pattern: 'win', weight: 1.5 },
+  { pattern: 'offer', weight: 1.5 },
+  { pattern: 'click here', weight: 2.5 },
+  { pattern: 'credit card required', weight: 2.4 },
+  { pattern: 'risk', weight: 1.2 },
+  { pattern: 'risk-free', weight: 1.9 },
+  { pattern: 'no risk', weight: 1.8 },
+  { pattern: 'work from home', weight: 2.7 },
+  { pattern: 'luxury watches', weight: 2 },
+  { pattern: 'winner', weight: 1.7 },
+  { pattern: 'freefreefree', weight: 2.6 },    // Helps KMP
+  { pattern: 'clickclickclick here', weight: 2.8 },  // Helps KMP  
+  { pattern: 'double your income', weight: 2.5 }
+
 
 ];
 
 
-type Algorithm = 'brute' | 'horspool';
+type Algorithm = 'brute' | 'horspool' | 'kmp'|'rabin karp';
+
 
 export default function Home() {
   const [text, setText] = useState('Hello, I am offering you a special discount on luxury watches.');
@@ -44,10 +64,21 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [finalStats, setFinalStats] = useState<{ score: number; comparisons: number } | null>(null);
   const [shiftTable, setShiftTable] = useState<Record<string, Record<string, number>>>({});
+  const [kmpTables, setKmpTables] = useState<Record<string, number[]>>({});
+  const [rkHashTable, setRkHashTable] = useState<{ i: number; window: string; hash: number }[]>([]);
+  const [useAllPatterns, setUseAllPatterns] = useState(true);
+  const [matchedWords, setMatchedWords] = useState<{ pattern: string; position: number }[]>([]);
+
+
   const scrollRef = useRef<HTMLSpanElement | null>(null);
 
-  const getMatchingPatterns = () =>
-    spamPatterns.filter(({ pattern }) => text.toLowerCase().includes(pattern.toLowerCase()));
+  const getMatchingPatterns = () => {
+    if (!useAllPatterns) {
+      // Quick check using .includes()
+      return spamPatterns.filter(({ pattern }) => text.toLowerCase().includes(pattern.toLowerCase()));
+    }
+    return spamPatterns;
+  };
 
   const generateHorspoolShiftTable = (pattern: string) => {
     const table: Record<string, number> = {};
@@ -57,10 +88,29 @@ export default function Home() {
     }
     return table;
   };
+  const buildKMPPrefixTable = (pattern: string): number[] => {
+  const table = Array(pattern.length).fill(0);
+  let len = 0;
+  let i = 1;
+  while (i < pattern.length) {
+    if (pattern[i].toLowerCase() === pattern[len].toLowerCase()) {
+      len++;
+      table[i] = len;
+      i++;
+    } else if (len !== 0) {
+      len = table[len - 1];
+    } else {
+      table[i] = 0;
+      i++;
+    }
+  }
+  return table;
+};
 
   const runBruteForce = () => {
     const matches = getMatchingPatterns();
     const allSteps: any[] = [];
+    const matchedWords: { pattern: string; position: number }[] = [];
     let score = 0,
       comps = 0;
 
@@ -76,6 +126,7 @@ export default function Home() {
         }
         if (j === m) {
           score += weight;
+          matchedWords.push({ pattern, position: i });
           if (stopOnFirstMatch) break;
         }
       }
@@ -84,12 +135,14 @@ export default function Home() {
     setSteps(allSteps);
     setFinalStats({ score, comparisons: comps });
     setStepIndex(0);
+    setMatchedWords(matchedWords);
     setIsRunning(true);
   };
 
   const runHorspool = () => {
     const matches = getMatchingPatterns();
     const allSteps: any[] = [];
+    const matchedWords: { pattern: string; position: number }[] = [];
     let score = 0,
       comps = 0;
     const fullTable: Record<string, Record<string, number>> = {};
@@ -110,6 +163,7 @@ export default function Home() {
         }
         if (j < 0) {
           score += weight;
+          matchedWords.push({ pattern, position: i });
           if (stopOnFirstMatch) break;
           i += 1;
         } else {
@@ -123,15 +177,179 @@ export default function Home() {
     setSteps(allSteps);
     setFinalStats({ score, comparisons: comps });
     setStepIndex(0);
+    setMatchedWords(matchedWords);
     setIsRunning(true);
   };
+
+ const runKMP = () => {
+  const matches = getMatchingPatterns();
+  const allSteps: any[] = [];
+  const matchedWords: { pattern: string; position: number }[] = [];
+  let score = 0, comps = 0;
+  const allPrefixTables: Record<string, number[]> = {};
+
+  for (const { pattern, weight } of matches) {
+    const m = pattern.length;
+    const n = text.length;
+    const lps = buildKMPPrefixTable(pattern);
+    allPrefixTables[pattern] = lps;
+
+    let i = 0, j = 0;
+    while (i <= n-m) {
+      const match = text[i]?.toLowerCase() === pattern[j]?.toLowerCase();
+      comps++;
+      allSteps.push({ i: i - j, j, pattern, match, algo: 'kmp' });
+
+      if (match) {
+        i++;
+        j++;
+      } else {
+        if (j !== 0) {
+          j = lps[j - 1];
+        } else {
+          i++;
+        }
+      }
+
+      if (j === m) {
+        score += weight;
+        matchedWords.push({ pattern, position: i - j });
+        if (stopOnFirstMatch) break;  // Stop if we only need first match
+        j = lps[j - 1];  // Look for next match
+      }
+    }
+  }
+
+  setKmpTables(allPrefixTables);
+  setSteps(allSteps);
+  setFinalStats({ score, comparisons: comps });
+  setStepIndex(0);
+  setMatchedWords(matchedWords);
+  setIsRunning(true);
+};
+
+ const runRabinKarp = () => {
+  const matches = getMatchingPatterns();
+  const allSteps: any[] = [];
+  const matchedWords: { pattern: string; position: number }[] = [];
+  let score = 0, comps = 0;
+  const hashTable: { i: number; window: string; hash: number }[] = [];
+
+  const d = 256;
+  const q = 101; // Prime number
+
+  // Precompute hashes for all patterns
+  const patternData = matches.map(({ pattern, weight }) => {
+    const m = pattern.length;
+    let pHash = 0;
+    let h = 1;
+
+    for (let i = 0; i < m - 1; i++) {
+      h = (h * d) % q;
+    }
+
+    for (let i = 0; i < m; i++) {
+      pHash = (d * pHash + pattern.charCodeAt(i)) % q;
+    }
+
+    return { pattern, weight, m, h, pHash, matched: false };
+  });
+
+  const n = text.length;
+
+  patternData.forEach((pData) => {
+    const { pattern, weight, m, h, pHash } = pData;
+    let windowHash = 0;
+
+    // Initial hash of first window
+    for (let i = 0; i < m; i++) {
+      windowHash = (d * windowHash + text.charCodeAt(i)) % q;
+    }
+
+    for (let i = 0; i <= n - m; i++) {
+      if (pData.matched) break; // Stop if pattern matched
+
+      comps++;
+      hashTable.push({
+        i: i,
+        window: text.substring(i, i + m),
+        hash: windowHash
+      });
+
+      allSteps.push({
+        i,
+        j: 0,
+        pattern,
+        match: windowHash === pHash,
+        algo: 'rabin karp',
+         pHash,
+        windowHash
+      });
+
+      // If hash matches, do char-by-char check
+      if (windowHash === pHash) {
+        let matchFound = true;
+        for (let j = 0; j < m; j++) {
+          comps++;
+          allSteps.push({
+            i,
+            j,
+            pattern,
+            match: text[i + j]?.toLowerCase() === pattern[j].toLowerCase(),
+            algo: 'rabin karp',
+             pHash,
+            windowHash
+          });
+
+          if (text[i + j]?.toLowerCase() !== pattern[j].toLowerCase()) {
+            matchFound = false;
+            break;
+          }
+        }
+
+        if (matchFound) {
+          score += weight;
+          pData.matched = true;
+          matchedWords.push({ pattern, position: i });
+          if (stopOnFirstMatch) {
+            setRkHashTable(hashTable);
+            setSteps(allSteps);
+            setFinalStats({ score, comparisons: comps });
+            setStepIndex(0);
+            setMatchedWords(matchedWords);
+            setIsRunning(true);
+            return;
+          }
+        }
+      }
+
+      // Rolling hash: update windowHash for next window
+      if (i < n - m) {
+        windowHash = (d * (windowHash - text.charCodeAt(i) * h) + text.charCodeAt(i + m)) % q;
+        if (windowHash < 0) windowHash += q;
+      }
+    }
+  });
+
+  setRkHashTable(hashTable);
+  setSteps(allSteps);
+  setFinalStats({ score, comparisons: comps });
+  setStepIndex(0);
+  setMatchedWords(matchedWords);
+  setIsRunning(true);
+};
+
+
 
   const run = () => {
     setSteps([]);
     setFinalStats(null);
     setShiftTable({});
     if (algo === 'brute') runBruteForce();
-    else runHorspool();
+    else if (algo === 'horspool') runHorspool();
+    else if (algo === 'kmp') runKMP();
+    else runRabinKarp();
+
   };
 
   useEffect(() => {
@@ -175,6 +393,19 @@ export default function Home() {
         >
           Horspool
         </button>
+        <button
+        onClick={() => setAlgo('kmp')}
+        className={`px-4 py-2 rounded ${algo === 'kmp' ? 'bg-blue-600 text-white' : 'bg-gray-300 text-black'}`}
+      >
+        KMP
+      </button>
+      <button
+        onClick={() => setAlgo('rabin karp')}
+        className={`px-4 py-2 rounded ${algo === 'rabin karp' ? 'bg-blue-600 text-white' : 'bg-gray-300 text-black'}`}
+      >
+        Rabin-Karp
+      </button>
+
 
         <button onClick={run} className="px-4 py-2 bg-green-600 text-white rounded font-bold">
           Run
@@ -198,6 +429,10 @@ export default function Home() {
                 setIsRunning(false);
                 setFinalStats(null);
                 setShiftTable({});
+                setKmpTables({});
+                setMatchedWords([]);
+
+
               }}
               className="px-4 py-2 bg-red-600 text-white rounded font-bold"
             >
@@ -228,7 +463,18 @@ export default function Home() {
             onChange={(e) => setStopOnFirstMatch(e.target.checked)}
           />
         </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-white font-semibold">Use all patterns:</label>
+          <input
+            type="checkbox"
+            checked={useAllPatterns}
+            onChange={(e) => setUseAllPatterns(e.target.checked)}
+          />
+        </div>
       </div>
+
+      
 
       <div className="bg-gray-900 p-4 rounded border border-gray-700 text-white">
         <h3 className="text-lg font-bold mb-2">ℹ️ How is the Spam Score Calculated?</h3>
@@ -239,39 +485,61 @@ export default function Home() {
         </p>
       </div>
 
-      {currentStep && (
-        <motion.div
-          className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 p-4 rounded text-white shadow-md"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          <p className="text-lg font-semibold">
-            Comparing "<code className="bg-white text-black px-1 rounded">{currentStep.pattern}</code>" at position{' '}
-            <span className="font-bold">{currentStep.i + currentStep.j}</span> —{' '}
-            <span className={currentStep.match ? 'text-lime-200 font-bold' : 'text-red-200 font-bold'}>
-              {currentStep.match ? 'Match ✅' : 'Mismatch ❌'}
-            </span>
-          </p>
-        </motion.div>
-      )}
+{currentStep && (
+  <motion.div
+    className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 p-4 rounded text-white shadow-md"
+    initial={{ opacity: 0, y: -10 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.4 }}
+  >
+    <p className="text-lg font-semibold">
+      Comparing "<code className="bg-white text-black px-1 rounded">{currentStep.pattern}</code>" at position{' '}
+      <span className="font-bold">{currentStep.i + currentStep.j}</span> —{' '}
+      <span className={currentStep.match ? 'text-lime-200 font-bold' : 'text-red-200 font-bold'}>
+        {currentStep.match ? 'Match ✅' : 'Mismatch ❌'}
+      </span>
+    </p>
 
-      {!isRunning && finalStats && stepIndex >= steps.length && (
-        <motion.div
-          className="bg-gradient-to-br from-green-700 via-emerald-600 to-lime-600 text-white p-4 rounded shadow-lg border border-green-800"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.4 }}
-        >
-          <h2 className="text-xl font-bold mb-2">📊 Final Stats</h2>
-          <p>
-            <strong>Total Comparisons:</strong> {finalStats.comparisons}
-          </p>
-          <p>
-            <strong>Spam Score:</strong> <span className="text-yellow-200">{finalStats.score.toFixed(2)}</span>
-          </p>
-        </motion.div>
-      )}
+    {currentStep.algo === 'rabin karp' && (
+      <p className="mt-2 text-sm text-yellow-200">
+        Pattern Hash: <strong>{currentStep.pHash}</strong> | Window Hash: <strong>{currentStep.windowHash}</strong>
+      </p>
+    )}
+  </motion.div>
+)}
+
+     {!isRunning && finalStats && stepIndex >= steps.length && (
+  <motion.div
+    className="bg-gradient-to-br from-green-700 via-emerald-600 to-lime-600 text-white p-4 rounded shadow-lg border border-green-800"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ duration: 0.4 }}
+  >
+    <h2 className="text-xl font-bold mb-2">📊 Final Stats</h2>
+    <p>
+      <strong>Total Comparisons:</strong> {finalStats.comparisons}
+    </p>
+    <p>
+      <strong>Spam Score:</strong> <span className="text-yellow-200">{finalStats.score.toFixed(2)}</span>
+    </p>
+
+    {/* 👇 New: Matched Patterns and Positions */}
+    {matchedWords.length > 0 && (
+      <div className="mt-4 bg-white text-black p-4 rounded border border-green-900">
+        <h3 className="font-bold mb-2 text-green-800">🟢 Matched Patterns and Positions</h3>
+        <ul className="list-disc list-inside space-y-1">
+          {matchedWords.map((match, idx) => (
+            <li key={idx}>
+              Pattern "<span className="font-semibold">{match.pattern}</span>" matched at position{' '}
+              <span className="text-blue-600 font-bold">{match.position}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </motion.div>
+)}
+
 
       {algo === 'horspool' && Object.keys(shiftTable).length > 0 && (
         <div className="bg-white text-black p-4 rounded border">
@@ -288,6 +556,28 @@ export default function Home() {
           ))}
         </div>
       )}
+
+
+      {algo === 'kmp' && Object.keys(kmpTables).length > 0 && (
+    <div className="bg-white text-black p-4 rounded border">
+    <h3 className="font-bold mb-2">KMP Prefix Tables:</h3>
+    {Object.entries(kmpTables).map(([pattern, table]) => (
+      <div key={pattern} className="mb-2">
+        <strong>{pattern}:</strong>{' '}
+        {table.map((val, idx) => (
+          <span key={idx} className="inline-block mr-2">
+            [{idx}] → {val}
+          </span>
+        ))}
+      </div>
+    ))}
+  </div>
+)}
+
+
+
+
+
 
       <div className="font-mono whitespace-pre bg-gray-950 text-white p-4 rounded-xl border border-gray-700 overflow-x-auto relative shadow-lg space-y-2">
         <div className="flex w-fit text-xl">
@@ -312,8 +602,8 @@ export default function Home() {
             {Array.from({ length: currentStep.i }).map((_, k) => (
               <span key={k} className="inline-block px-2 py-1 text-transparent">.</span>
             ))}
-            {currentStep.pattern.split('').map((char: string, j: number) => {
-              const isCurrent = j === currentStep.j;
+           {currentStep?.pattern && currentStep.pattern.split('').map((char: string, j: number) => {
+            const isCurrent = j === currentStep.j;
               return (
                 <motion.span
                   key={j}
