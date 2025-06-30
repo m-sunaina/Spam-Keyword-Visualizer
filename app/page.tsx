@@ -189,36 +189,47 @@ export default function Home() {
   const allPrefixTables: Record<string, number[]> = {};
 
   for (const { pattern, weight } of matches) {
-    const m = pattern.length;
-    const n = text.length;
-    const lps = buildKMPPrefixTable(pattern);
-    allPrefixTables[pattern] = lps;
+  const m = pattern.length;
+  const n = text.length;
+  const lps = buildKMPPrefixTable(pattern);
+  allPrefixTables[pattern] = lps;
 
-    let i = 0, j = 0;
-    while (i <= n-m) {
-      const match = text[i]?.toLowerCase() === pattern[j]?.toLowerCase();
-      comps++;
-      allSteps.push({ i: i - j, j, pattern, match, algo: 'kmp' });
+  let i = 0, j = 0;
 
-      if (match) {
-        i++;
-        j++;
-      } else {
-        if (j !== 0) {
-          j = lps[j - 1];
-        } else {
-          i++;
-        }
-      }
+  while (i < n) {
+    const match = text[i]?.toLowerCase() === pattern[j]?.toLowerCase();
+    comps++;
+
+    allSteps.push({
+      i: i - j,      // position in text where pattern is currently aligned
+      j,             // index in pattern
+      pattern,
+      match,
+      algo: 'kmp',
+      textChar: text[i],
+      patternChar: pattern[j],
+    });
+
+    if (match) {
+      i++;
+      j++;
 
       if (j === m) {
         score += weight;
         matchedWords.push({ pattern, position: i - j });
-        if (stopOnFirstMatch) break;  // Stop if we only need first match
-        j = lps[j - 1];  // Look for next match
+        if (stopOnFirstMatch) break;
+        j = lps[j - 1]; // prepare to continue search
+      }
+    } else {
+      if (j !== 0) {
+        j = lps[j - 1]; // shift using prefix table
+      } else {
+        i++; // move forward in text
       }
     }
+      if (n - i < m - j) break;
   }
+}
 
   setKmpTables(allPrefixTables);
   setSteps(allSteps);
@@ -580,48 +591,60 @@ export default function Home() {
 
 
       <div className="font-mono whitespace-pre bg-gray-950 text-white p-4 rounded-xl border border-gray-700 overflow-x-auto relative shadow-lg space-y-2">
-        <div className="flex w-fit text-xl">
-          {text.split('').map((char, idx) => {
-            const highlight = currentStep && idx === currentStep.i + currentStep.j;
-            return (
-              <motion.span
-                key={idx}
-                ref={highlight ? scrollRef : null}
-                className={`inline-block px-2 py-1 rounded ${
-                  highlight ? (currentStep.match ? 'bg-green-500 text-black' : 'bg-red-500 text-white') : ''
-                }`}
-              >
-                {char}
-              </motion.span>
-            );
-          })}
-        </div>
+  {/* TEXT ROW */}
+  <div className="flex w-fit text-xl">
+    {text.split('').map((char, idx) => {
+      const isHighlight =
+        currentStep && idx === currentStep.i + currentStep.j; // Highlighting current comparison
+      return (
+        <motion.span
+          key={idx}
+          ref={isHighlight ? scrollRef : null}
+          className={`inline-block px-2 py-1 rounded ${
+            isHighlight
+              ? currentStep.match
+                ? 'bg-green-500 text-black'
+                : 'bg-red-500 text-white'
+              : ''
+          }`}
+        >
+          {char}
+        </motion.span>
+      );
+    })}
+  </div>
 
-        {currentStep && (
-          <div className="flex w-fit mt-1 text-xl">
-            {Array.from({ length: currentStep.i }).map((_, k) => (
-              <span key={k} className="inline-block px-2 py-1 text-transparent">.</span>
-            ))}
-           {currentStep?.pattern && currentStep.pattern.split('').map((char: string, j: number) => {
-            const isCurrent = j === currentStep.j;
-              return (
-                <motion.span
-                  key={j}
-                  className={`inline-block px-2 py-1 rounded ${
-                    isCurrent
-                      ? currentStep.match
-                        ? 'bg-green-500 text-black'
-                        : 'bg-red-500 text-white'
-                      : 'bg-gray-700 text-white'
-                  }`}
-                >
-                  {char}
-                </motion.span>
-              );
-            })}
-          </div>
-        )}
-      </div>
+  {/* PATTERN ROW */}
+  {currentStep && (
+    <div className="flex w-fit mt-1 text-xl">
+      {/* Padding spaces to align pattern at currentStep.i (== i - j) */}
+      {Array.from({ length: currentStep.i }).map((_, k) => (
+        <span key={k} className="inline-block px-2 py-1 text-transparent">
+          .
+        </span>
+      ))}
+
+      {currentStep.pattern.split('').map((char: string, j: number) => {
+        const isCurrent = j === currentStep.j;
+        return (
+          <motion.span
+            key={j}
+            className={`inline-block px-2 py-1 rounded ${
+              isCurrent
+                ? currentStep.match
+                  ? 'bg-green-500 text-black'
+                  : 'bg-red-500 text-white'
+                : 'bg-gray-700 text-white'
+            }`}
+          >
+            {char}
+          </motion.span>
+        );
+      })}
+    </div>
+  )}
+</div>
+
     </main>
   );
 }
