@@ -278,7 +278,7 @@ export default function Home() {
     }
 
     for (let i = 0; i <= n - m; i++) {
-      if (pData.matched) break; // Stop if pattern matched
+      if (stopOnFirstMatch && pData.matched) break;
 
       comps++;
       hashTable.push({
